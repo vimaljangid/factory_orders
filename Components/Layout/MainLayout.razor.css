@@ -1,0 +1,19 @@
+.factory-app-container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+#blazor-error-ui {
+    background: #1e293b;
+    color: #f8fafc;
+    border-top: 2px solid #ef4444;
+    bottom: 0;
+    box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.4);
+    display: none;
+    left: 0;
+    padding: 0.75rem 1.5rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}

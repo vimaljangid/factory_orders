@@ -1,0 +1,744 @@
+@page "/"
+@implements IDisposable
+@inject IOrderService OrderService
+@inject IJSRuntime JS
+
+<div class="app-navbar d-flex justify-content-between align-items-center">
+    <div class="d-flex align-items-center gap-2">
+        <span class="brand-badge">
+            <i class="bi bi-gear-wide-connected"></i> FACTORY FLOW
+        </span>
+        <span class="live-indicator d-none d-sm-inline-flex">
+            <span class="live-dot"></span> LIVE SYNC
+        </span>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-primary d-inline-flex align-items-center gap-2 fw-bold px-3 py-1 rounded-pill" @onclick="OpenCreateModal">
+            <i class="bi bi-plus-circle-fill"></i>
+            <span>New Order</span>
+        </button>
+    </div>
+</div>
+
+<!-- Urgent Flash Banner if there are active urgent items -->
+@if (UrgentActiveCount > 0)
+{
+    <div class="urgent-banner">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+            <span><strong>ATTENTION:</strong> @UrgentActiveCount order@(UrgentActiveCount > 1 ? "s" : "") tagged <strong>URGENT / TOP PRIORITY</strong> need immediate production!</span>
+        </div>
+        <button class="btn btn-sm btn-outline-light py-0 px-2 fw-bold" @onclick="@(() => SetFilter("urgent"))">
+            View Urgent
+        </button>
+    </div>
+}
+
+<div class="container-fluid px-3 py-3" style="max-width: 1000px; margin: 0 auto;">
+
+    <!-- Search & Filter Bar -->
+    <div class="row g-2 align-items-center mb-3">
+        <div class="col-12 col-md-6">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary">
+                    <i class="bi bi-search"></i>
+                </span>
+                <input type="text" class="form-control" placeholder="Search item, order #, person, machine..." 
+                       @bind="SearchQuery" @bind:event="oninput" />
+                @if (!string.IsNullOrWhiteSpace(SearchQuery))
+                {
+                    <button class="btn btn-outline-secondary" @onclick="@(() => SearchQuery = string.Empty)">✕</button>
+                }
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6 text-md-end text-secondary small">
+            <span class="live-indicator d-sm-none mb-1">
+                <span class="live-dot"></span> Real-time Connected
+            </span>
+            <span class="ms-2">Auto-updates on all phones live</span>
+        </div>
+    </div>
+
+    <!-- Filter Chips -->
+    <div class="filter-tabs mb-3">
+        <div class="tab-chip @(ActiveFilter == "all" ? "active" : "")" @onclick="@(() => SetFilter("all"))">
+            <i class="bi bi-collection"></i> All Orders
+            <span class="tab-count">@AllOrders.Count</span>
+        </div>
+        <div class="tab-chip @(ActiveFilter == "urgent" ? "active" : "")" @onclick="@(() => SetFilter("urgent"))">
+            <i class="bi bi-fire text-danger"></i> Urgent & First
+            <span class="tab-count">@AllOrders.Count(o => (o.Priority == OrderPriority.Urgent || o.IsFirstToProduce) && o.Status != OrderStatus.Completed)</span>
+        </div>
+        <div class="tab-chip @(ActiveFilter == "pending" ? "active" : "")" @onclick="@(() => SetFilter("pending"))">
+            <i class="bi bi-hourglass-split text-warning"></i> Waiting to Make
+            <span class="tab-count">@AllOrders.Count(o => o.Status == OrderStatus.Pending)</span>
+        </div>
+        <div class="tab-chip @(ActiveFilter == "progress" ? "active" : "")" @onclick="@(() => SetFilter("progress"))">
+            <i class="bi bi-tools text-primary"></i> In Production
+            <span class="tab-count">@AllOrders.Count(o => o.Status == OrderStatus.InProgress)</span>
+        </div>
+        <div class="tab-chip @(ActiveFilter == "completed" ? "active" : "")" @onclick="@(() => SetFilter("completed"))">
+            <i class="bi bi-check2-circle text-success"></i> Ready / Done
+            <span class="tab-count">@AllOrders.Count(o => o.Status == OrderStatus.Completed)</span>
+        </div>
+    </div>
+
+    <!-- Orders List -->
+    @if (IsLoading)
+    {
+        <div class="text-center py-5 text-secondary">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-2">Loading factory orders...</div>
+        </div>
+    }
+    else if (!FilteredOrders.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+            <h5 class="text-white">No orders in this list</h5>
+            <p class="text-secondary small">Tap "+ New Order" below to create a manufacturing job.</p>
+            <button class="btn btn-primary mt-2" @onclick="OpenCreateModal">
+                <i class="bi bi-plus-lg"></i> Create First Order
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="order-list">
+            @foreach (var order in FilteredOrders)
+            {
+                <div class="order-card @(order.Priority == OrderPriority.Urgent ? "is-urgent" : "") @(order.IsFirstToProduce ? "is-first" : "")"
+                     key="@order.Id">
+                    
+                    <!-- Top Card Header: Order #, Badges, Time -->
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-1">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="text-secondary fw-bold" style="font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;">
+                                @order.OrderNumber
+                            </span>
+
+                            @if (order.IsFirstToProduce && order.Status != OrderStatus.Completed)
+                            {
+                                <span class="badge-first">
+                                    <i class="bi bi-lightning-charge-fill"></i> FIRST TO READY
+                                </span>
+                            }
+
+                            @if (order.Priority == OrderPriority.Urgent)
+                            {
+                                <span class="badge-urgent">
+                                    <i class="bi bi-fire"></i> URGENT
+                                </span>
+                            }
+                            else if (order.Priority == OrderPriority.High)
+                            {
+                                <span class="badge-high">
+                                    <i class="bi bi-arrow-up-circle"></i> HIGH
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge-normal">NORMAL</span>
+                            }
+
+                            <!-- Status Badge -->
+                            @if (order.Status == OrderStatus.Pending)
+                            {
+                                <span class="badge-status-pending">
+                                    <i class="bi bi-clock"></i> Waiting
+                                </span>
+                            }
+                            else if (order.Status == OrderStatus.InProgress)
+                            {
+                                <span class="badge-status-progress">
+                                    <i class="bi bi-gear-fill me-1"></i> Making Now
+                                </span>
+                            }
+                            else if (order.Status == OrderStatus.Completed)
+                            {
+                                <span class="badge-status-completed">
+                                    <i class="bi bi-check2-all"></i> READY / DONE
+                                </span>
+                            }
+                        </div>
+
+                        <div class="text-secondary small">
+                            <i class="bi bi-clock-history"></i> @FormatTimeAgo(order.CreatedAt)
+                        </div>
+                    </div>
+
+                    <!-- Item Name and Quantity -->
+                    <div class="d-flex justify-content-between align-items-baseline gap-2 mt-2">
+                        <div class="order-title">
+                            @order.ItemName
+                        </div>
+                        <div class="text-nowrap">
+                            <span class="badge bg-primary bg-opacity-25 text-primary border border-primary border-opacity-50 px-3 py-1 fs-6 fw-bold">
+                                @order.Quantity @order.Unit
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Metadata details -->
+                    <div class="order-meta">
+                        <span class="order-meta-item">
+                            <i class="bi bi-person-circle text-info"></i>
+                            <span>Ordered by: <strong>@order.OrderedBy</strong></span>
+                        </span>
+
+                        @if (!string.IsNullOrWhiteSpace(order.MachineOrLine))
+                        {
+                            <span class="order-meta-item">
+                                <i class="bi bi-cpu text-warning"></i>
+                                <span>Machine: <strong>@order.MachineOrLine</strong></span>
+                            </span>
+                        }
+
+                        @if (order.Status == OrderStatus.InProgress && !string.IsNullOrWhiteSpace(order.AssignedTo))
+                        {
+                            <span class="order-meta-item text-primary fw-bold">
+                                <i class="bi bi-person-badge"></i>
+                                <span>Worker: @order.AssignedTo</span>
+                            </span>
+                        }
+
+                        @if (order.Status == OrderStatus.Completed && order.CompletedAt.HasValue)
+                        {
+                            <span class="order-meta-item text-success">
+                                <i class="bi bi-calendar-check"></i>
+                                <span>Finished at @order.CompletedAt.Value.ToString("g")</span>
+                            </span>
+                        }
+                    </div>
+
+                    <!-- Notes / Blueprint info -->
+                    @if (!string.IsNullOrWhiteSpace(order.Notes))
+                    {
+                        <div class="order-notes">
+                            <i class="bi bi-info-circle me-1"></i> @order.Notes
+                        </div>
+                    }
+
+                    <!-- Action Toolbar -->
+                    <div class="card-actions justify-content-between align-items-center">
+                        <div class="d-flex flex-wrap gap-2">
+                            <!-- Production Workflow Buttons -->
+                            @if (order.Status == OrderStatus.Pending)
+                            {
+                                <button class="btn-action btn-start" @onclick="@(() => OpenClaimModal(order))">
+                                    <i class="bi bi-play-fill fs-6"></i> Start Making
+                                </button>
+                            }
+                            else if (order.Status == OrderStatus.InProgress)
+                            {
+                                <button class="btn-action btn-finish" @onclick="@(() => MarkAsCompleted(order))">
+                                    <i class="bi bi-check-lg fs-6"></i> Mark Ready
+                                </button>
+                                <button class="btn-action btn-secondary-action" @onclick="@(() => RevertToPending(order))">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Pause/Revert
+                                </button>
+                            }
+                            else if (order.Status == OrderStatus.Completed)
+                            {
+                                <button class="btn-action btn-secondary-action" @onclick="@(() => RevertToPending(order))">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Re-open Order
+                                </button>
+                            }
+
+                            <!-- Priority Tagging Shortcuts -->
+                            @if (order.Status != OrderStatus.Completed)
+                            {
+                                <button class="btn-action btn-tag-first @(order.IsFirstToProduce ? "active" : "")" 
+                                        title="Tag as #1 First item to be produced"
+                                        @onclick="@(() => ToggleFirstToProduce(order))">
+                                    <i class="bi bi-lightning-charge-fill"></i>
+                                    <span>@(order.IsFirstToProduce ? "Tagged #1 First" : "Tag #1 First")</span>
+                                </button>
+
+                                <button class="btn-action btn-urgent-toggle @(order.Priority == OrderPriority.Urgent ? "active" : "")"
+                                        title="Toggle Urgent Flag"
+                                        @onclick="@(() => ToggleUrgent(order))">
+                                    <i class="bi bi-fire"></i>
+                                    <span>@(order.Priority == OrderPriority.Urgent ? "Urgent Active" : "Make Urgent")</span>
+                                </button>
+                            }
+                        </div>
+
+                        <!-- Edit & Delete Menu -->
+                        <div class="d-flex gap-1 ms-auto">
+                            <button class="btn btn-sm btn-outline-secondary py-1 px-2 rounded-2" 
+                                    title="Edit Order" @onclick="@(() => OpenEditModal(order))">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger py-1 px-2 rounded-2" 
+                                    title="Delete Order" @onclick="@(() => DeleteOrder(order.Id))">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Mobile Floating Action Button -->
+<button class="fab-order" @onclick="OpenCreateModal">
+    <i class="bi bi-plus-lg fs-5"></i>
+    <span>New Order</span>
+</button>
+
+<!-- ==================== MODAL: CREATE ORDER ==================== -->
+@if (ShowCreateModal)
+{
+    <div class="factory-modal-backdrop" @onclick="CloseModals">
+        <div class="factory-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h4 class="text-white d-flex align-items-center gap-2">
+                    <i class="bi bi-plus-circle text-primary"></i> Give Manufacturing Order
+                </h4>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+            </div>
+            
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(FormErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-3">@FormErrorMessage</div>
+                }
+
+                <div class="mb-3">
+                    <label class="form-label">Item / Part Name *</label>
+                    <input type="text" class="form-control" placeholder="e.g. Shaft 25mm CNC, Flange Type B" 
+                           @bind="NewOrder.ItemName" autofocus />
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-7">
+                        <label class="form-label">Quantity *</label>
+                        <input type="number" class="form-control" min="1" @bind="NewOrder.Quantity" />
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label">Unit</label>
+                        <select class="form-select" @bind="NewOrder.Unit">
+                            <option value="pcs">pcs</option>
+                            <option value="sets">sets</option>
+                            <option value="kg">kg</option>
+                            <option value="boxes">boxes</option>
+                            <option value="meters">meters</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Priority Selector -->
+                <div class="mb-3">
+                    <label class="form-label">Priority Level</label>
+                    <div class="priority-selector">
+                        <div class="priority-btn @(NewOrder.Priority == OrderPriority.Normal ? "selected-normal" : "")"
+                             @onclick="@(() => NewOrder.Priority = OrderPriority.Normal)">
+                            <i class="bi bi-check2"></i> Normal
+                        </div>
+                        <div class="priority-btn @(NewOrder.Priority == OrderPriority.High ? "selected-high" : "")"
+                             @onclick="@(() => NewOrder.Priority = OrderPriority.High)">
+                            <i class="bi bi-arrow-up"></i> High
+                        </div>
+                        <div class="priority-btn @(NewOrder.Priority == OrderPriority.Urgent ? "selected-urgent" : "")"
+                             @onclick="@(() => { NewOrder.Priority = OrderPriority.Urgent; NewOrder.IsFirstToProduce = true; })">
+                            <i class="bi bi-fire"></i> Urgent 🚨
+                        </div>
+                    </div>
+                </div>
+
+                <!-- First to Produce Switch -->
+                <div class="form-check form-switch p-3 mb-3 rounded-3" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <input class="form-check-input ms-0 me-3" type="checkbox" id="firstToReadySwitch" 
+                           @bind="NewOrder.IsFirstToProduce" style="cursor: pointer; transform: scale(1.2);">
+                    <label class="form-check-label fw-bold text-warning" for="firstToReadySwitch" style="cursor: pointer;">
+                        ⚡ Tag as #1 FIRST ONE TO READY
+                    </label>
+                    <div class="text-secondary small mt-1">Pins this order directly to the supervisor's top queue with highest visual alert.</div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label">Ordered By (Your Name / Role) *</label>
+                        <input type="text" class="form-control" placeholder="e.g. Ramesh (Manager)" @bind="NewOrder.OrderedBy" />
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label">Machine / Line (Optional)</label>
+                        <input type="text" class="form-control" placeholder="e.g. CNC Lathe 1, Line B" @bind="NewOrder.MachineOrLine" />
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Special Notes / Specifications</label>
+                    <textarea class="form-control" rows="2" placeholder="Tolerance, material grade, drawing #, or packaging instructions..." 
+                              @bind="NewOrder.Notes"></textarea>
+                </div>
+            </div>
+
+            <div class="modal-foot">
+                <button type="button" class="btn btn-secondary px-3" @onclick="CloseModals">Cancel</button>
+                <button type="button" class="btn btn-primary fw-bold px-4" @onclick="SubmitNewOrder">
+                    <i class="bi bi-send-fill me-1"></i> Dispatch Order
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ==================== MODAL: CLAIM / START MAKING ==================== -->
+@if (ShowClaimModal && OrderToClaim != null)
+{
+    <div class="factory-modal-backdrop" @onclick="CloseModals">
+        <div class="factory-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h4 class="text-white d-flex align-items-center gap-2">
+                    <i class="bi bi-play-circle text-primary"></i> Start Production
+                </h4>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="p-3 rounded-3 mb-3" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color);">
+                    <div class="fw-bold text-white fs-5">@OrderToClaim.ItemName</div>
+                    <div class="text-secondary small">Order: @OrderToClaim.OrderNumber | Quantity: @OrderToClaim.Quantity @OrderToClaim.Unit</div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Supervisor / Operator Name *</label>
+                    <input type="text" class="form-control" placeholder="e.g. Supervisor Rajesh, Operator Sunita" 
+                           @bind="ClaimantName" autofocus />
+                    <div class="text-secondary small mt-1">This lets everyone know who is currently working on this item.</div>
+                </div>
+            </div>
+
+            <div class="modal-foot">
+                <button type="button" class="btn btn-secondary px-3" @onclick="CloseModals">Cancel</button>
+                <button type="button" class="btn btn-success fw-bold px-4" @onclick="ConfirmClaim">
+                    <i class="bi bi-check-lg me-1"></i> Start Production Now
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ==================== MODAL: EDIT ORDER ==================== -->
+@if (ShowEditModal && EditingOrder != null)
+{
+    <div class="factory-modal-backdrop" @onclick="CloseModals">
+        <div class="factory-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h4 class="text-white d-flex align-items-center gap-2">
+                    <i class="bi bi-pencil-square text-info"></i> Edit Order @EditingOrder.OrderNumber
+                </h4>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Item Name</label>
+                    <input type="text" class="form-control" @bind="EditingOrder.ItemName" />
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-7">
+                        <label class="form-label">Quantity</label>
+                        <input type="number" class="form-control" @bind="EditingOrder.Quantity" />
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label">Unit</label>
+                        <input type="text" class="form-control" @bind="EditingOrder.Unit" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Priority</label>
+                    <select class="form-select" @bind="EditingOrder.Priority">
+                        <option value="@OrderPriority.Normal">Normal</option>
+                        <option value="@OrderPriority.High">High</option>
+                        <option value="@OrderPriority.Urgent">Urgent</option>
+                    </select>
+                </div>
+
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="editFirstToReady" @bind="EditingOrder.IsFirstToProduce">
+                    <label class="form-check-label fw-bold text-warning" for="editFirstToReady">
+                        ⚡ Tag as FIRST ONE TO READY
+                    </label>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Ordered By</label>
+                        <input type="text" class="form-control" @bind="EditingOrder.OrderedBy" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Assigned Worker</label>
+                        <input type="text" class="form-control" @bind="EditingOrder.AssignedTo" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Machine / Line</label>
+                    <input type="text" class="form-control" @bind="EditingOrder.MachineOrLine" />
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" rows="2" @bind="EditingOrder.Notes"></textarea>
+                </div>
+            </div>
+
+            <div class="modal-foot">
+                <button type="button" class="btn btn-secondary px-3" @onclick="CloseModals">Cancel</button>
+                <button type="button" class="btn btn-primary fw-bold px-4" @onclick="SaveEditedOrder">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ManufacturingOrder> AllOrders = new();
+    private bool IsLoading = true;
+    private string ActiveFilter = "all";
+    private string SearchQuery = string.Empty;
+
+    // Modals
+    private bool ShowCreateModal = false;
+    private bool ShowClaimModal = false;
+    private bool ShowEditModal = false;
+
+    private ManufacturingOrder NewOrder = new();
+    private ManufacturingOrder? OrderToClaim;
+    private ManufacturingOrder? EditingOrder;
+    private string ClaimantName = string.Empty;
+    private string FormErrorMessage = string.Empty;
+
+    private int UrgentActiveCount => AllOrders.Count(o => 
+        (o.Priority == OrderPriority.Urgent || o.IsFirstToProduce) && o.Status != OrderStatus.Completed);
+
+    private IEnumerable<ManufacturingOrder> FilteredOrders
+    {
+        get
+        {
+            var query = AllOrders.AsEnumerable();
+
+            // Filter tab
+            if (ActiveFilter == "urgent")
+            {
+                query = query.Where(o => (o.Priority == OrderPriority.Urgent || o.IsFirstToProduce) && o.Status != OrderStatus.Completed);
+            }
+            else if (ActiveFilter == "pending")
+            {
+                query = query.Where(o => o.Status == OrderStatus.Pending);
+            }
+            else if (ActiveFilter == "progress")
+            {
+                query = query.Where(o => o.Status == OrderStatus.InProgress);
+            }
+            else if (ActiveFilter == "completed")
+            {
+                query = query.Where(o => o.Status == OrderStatus.Completed);
+            }
+
+            // Search text
+            if (!string.IsNullOrWhiteSpace(SearchQuery))
+            {
+                var q = SearchQuery.Trim().ToLowerInvariant();
+                query = query.Where(o =>
+                    o.ItemName.ToLowerInvariant().Contains(q) ||
+                    o.OrderNumber.ToLowerInvariant().Contains(q) ||
+                    o.OrderedBy.ToLowerInvariant().Contains(q) ||
+                    (o.MachineOrLine != null && o.MachineOrLine.ToLowerInvariant().Contains(q)) ||
+                    (o.AssignedTo != null && o.AssignedTo.ToLowerInvariant().Contains(q)) ||
+                    (o.Notes != null && o.Notes.ToLowerInvariant().Contains(q)));
+            }
+
+            return query;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe to live broadcast from OrderService
+        OrderService.OnOrdersUpdated += HandleLiveOrderUpdate;
+        await LoadOrdersAsync();
+    }
+
+    private async Task LoadOrdersAsync()
+    {
+        try
+        {
+            AllOrders = await OrderService.GetAllOrdersAsync();
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task HandleLiveOrderUpdate(ManufacturingOrder? changedOrder, string eventType)
+    {
+        await InvokeAsync(async () =>
+        {
+            await LoadOrdersAsync();
+            StateHasChanged();
+
+            // Play audio alert if an urgent order was created or marked first
+            if (changedOrder != null && (changedOrder.Priority == OrderPriority.Urgent || changedOrder.IsFirstToProduce))
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("factoryAlert.playUrgentChime");
+                }
+                catch { }
+            }
+        });
+    }
+
+    private void SetFilter(string filter)
+    {
+        ActiveFilter = filter;
+    }
+
+    private void OpenCreateModal()
+    {
+        NewOrder = new ManufacturingOrder
+        {
+            Quantity = 100,
+            Unit = "pcs",
+            Priority = OrderPriority.Normal,
+            IsFirstToProduce = false,
+            OrderedBy = !string.IsNullOrWhiteSpace(ClaimantName) ? ClaimantName : ""
+        };
+        FormErrorMessage = string.Empty;
+        ShowCreateModal = true;
+    }
+
+    private async Task SubmitNewOrder()
+    {
+        if (string.IsNullOrWhiteSpace(NewOrder.ItemName))
+        {
+            FormErrorMessage = "Please enter the Item Name.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(NewOrder.OrderedBy))
+        {
+            FormErrorMessage = "Please specify who is ordering (Your Name / Role).";
+            return;
+        }
+
+        if (NewOrder.Quantity <= 0)
+        {
+            FormErrorMessage = "Quantity must be greater than 0.";
+            return;
+        }
+
+        // Remember person's name for future convenience
+        ClaimantName = NewOrder.OrderedBy;
+
+        await OrderService.CreateOrderAsync(NewOrder);
+        ShowCreateModal = false;
+    }
+
+    private void OpenClaimModal(ManufacturingOrder order)
+    {
+        OrderToClaim = order;
+        ShowClaimModal = true;
+    }
+
+    private async Task ConfirmClaim()
+    {
+        if (OrderToClaim != null)
+        {
+            var worker = !string.IsNullOrWhiteSpace(ClaimantName) ? ClaimantName : "Supervisor";
+            await OrderService.UpdateStatusAsync(OrderToClaim.Id, OrderStatus.InProgress, worker);
+            ShowClaimModal = false;
+            OrderToClaim = null;
+        }
+    }
+
+    private async Task MarkAsCompleted(ManufacturingOrder order)
+    {
+        await OrderService.UpdateStatusAsync(order.Id, OrderStatus.Completed, order.AssignedTo);
+    }
+
+    private async Task RevertToPending(ManufacturingOrder order)
+    {
+        await OrderService.UpdateStatusAsync(order.Id, OrderStatus.Pending, null);
+    }
+
+    private async Task ToggleFirstToProduce(ManufacturingOrder order)
+    {
+        await OrderService.SetFirstToProduceAsync(order.Id, !order.IsFirstToProduce);
+    }
+
+    private async Task ToggleUrgent(ManufacturingOrder order)
+    {
+        var newPriority = order.Priority == OrderPriority.Urgent ? OrderPriority.Normal : OrderPriority.Urgent;
+        await OrderService.UpdatePriorityAsync(order.Id, newPriority);
+    }
+
+    private void OpenEditModal(ManufacturingOrder order)
+    {
+        // Clone so editing doesn't mutate before saving
+        EditingOrder = new ManufacturingOrder
+        {
+            Id = order.Id,
+            OrderNumber = order.OrderNumber,
+            ItemName = order.ItemName,
+            Quantity = order.Quantity,
+            Unit = order.Unit,
+            Priority = order.Priority,
+            IsFirstToProduce = order.IsFirstToProduce,
+            OrderedBy = order.OrderedBy,
+            AssignedTo = order.AssignedTo,
+            MachineOrLine = order.MachineOrLine,
+            Notes = order.Notes,
+            Status = order.Status
+        };
+        ShowEditModal = true;
+    }
+
+    private async Task SaveEditedOrder()
+    {
+        if (EditingOrder != null)
+        {
+            await OrderService.UpdateOrderAsync(EditingOrder);
+            ShowEditModal = false;
+            EditingOrder = null;
+        }
+    }
+
+    private async Task DeleteOrder(int id)
+    {
+        await OrderService.DeleteOrderAsync(id);
+    }
+
+    private void CloseModals()
+    {
+        ShowCreateModal = false;
+        ShowClaimModal = false;
+        ShowEditModal = false;
+        FormErrorMessage = string.Empty;
+    }
+
+    private string FormatTimeAgo(DateTime dt)
+    {
+        var span = DateTime.Now - dt;
+        if (span.TotalMinutes < 1) return "Just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return dt.ToString("dd MMM, hh:mm tt");
+    }
+
+    public void Dispose()
+    {
+        OrderService.OnOrdersUpdated -= HandleLiveOrderUpdate;
+    }
+}

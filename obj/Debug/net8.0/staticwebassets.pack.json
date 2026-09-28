@@ -1,0 +1,53 @@
+{
+  "Files": [
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\obj\\Debug\\net8.0\\scopedcss\\projectbundle\\FactoryOrders.bundle.scp.css",
+      "PackagePath": "staticwebassets\\FactoryOrders.bundle.scp.css"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\app.css",
+      "PackagePath": "staticwebassets\\app.css"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\audioAlert.js",
+      "PackagePath": "staticwebassets\\audioAlert.js"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\bootstrap\\bootstrap.min.css",
+      "PackagePath": "staticwebassets\\bootstrap\\bootstrap.min.css"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\bootstrap\\bootstrap.min.css.map",
+      "PackagePath": "staticwebassets\\bootstrap\\bootstrap.min.css.map"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\favicon.png",
+      "PackagePath": "staticwebassets\\favicon.png"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\manifest.json",
+      "PackagePath": "staticwebassets\\manifest.json"
+    },
+    {
+      "Id": "D:\\factory_apps\\FactoryOrders\\wwwroot\\service-worker.js",
+      "PackagePath": "staticwebassets\\service-worker.js"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.FactoryOrders.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.build.FactoryOrders.props",
+      "PackagePath": "build\\FactoryOrders.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildMultiTargeting.FactoryOrders.props",
+      "PackagePath": "buildMultiTargeting\\FactoryOrders.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildTransitive.FactoryOrders.props",
+      "PackagePath": "buildTransitive\\FactoryOrders.props"
+    }
+  ],
+  "ElementsToRemove": []
+}
